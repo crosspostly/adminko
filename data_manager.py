@@ -1,6 +1,6 @@
 import json
 import os
-from .config import USERS_DB_PATH, CODES_DB_PATH
+from config import USERS_DB_PATH, CODES_DB_PATH
 
 # Загрузка данных пользователей
 def load_users_data():
