@@ -3,9 +3,9 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Keyboar
 from telegram.ext import ContextTypes
 import logging
 
-from .data_manager import get_user, update_user, load_codes_data, save_codes_data
-from .config import ADMIN_NOTIFICATION_CHAT_ID, MANAGER_IDS
-from .utils import generate_redeem_code, is_manager, format_date_for_ru
+from data_manager import get_user, update_user, load_codes_data, save_codes_data
+from config import ADMIN_NOTIFICATION_CHAT_ID
+from utils import generate_redeem_code, is_manager, format_date_for_ru, validate_redeem_code
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,11 @@ async def handle_manager_input(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # Шаг 1: Ожидание 6-значного кода клиента
     if context.user_data.get('state') == 'awaiting_redeem_code':
-        redeem_code = update.message.text
+        redeem_code = update.message.text.strip()
+        if not validate_redeem_code(redeem_code):
+            await update.message.reply_text("Неверный формат кода. Введите 6-значный код клиента.")
+            return
+
         codes_data = load_codes_data()
         code_info = codes_data.get(redeem_code)
 

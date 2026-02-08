@@ -1,13 +1,29 @@
 import random
+import re
 import string
 from datetime import datetime
-from .config import MANAGER_IDS
+from config import MANAGER_IDS
 
 # Функция для генерации одноразового кода
 def generate_redeem_code(length=6):
     characters = string.digits
     return ''.join(random.choice(characters) for _ in range(length))
 
+
+def is_manager(user_id: int) -> bool:
+    """Проверяет, является ли пользователь менеджером."""
+    return user_id in MANAGER_IDS
+
+
+def validate_phone_number(phone: str) -> bool:
+    """Проверка формата номера телефона +79XXXXXXXXX."""
+    pattern = r'^\+79\d{9}$'
+    return bool(re.match(pattern, phone))
+
+
+def validate_redeem_code(code: str) -> bool:
+    """Проверка формата 6-значного кода."""
+    return len(code) == 6 and code.isdigit()
 
 
 # Вспомогательная функция для форматирования даты

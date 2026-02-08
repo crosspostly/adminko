@@ -11,14 +11,11 @@ from telegram.ext import (
 )
 
 # Импорты для рефакторинга
-from . import config
-from . import handlers, admin_handlers
+import config
+import handlers
+import admin_handlers
 
-# Устанавливаем базовую конфигурацию логирования
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+config.setup_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -33,6 +30,20 @@ async def post_init(application: Application):
         ("cabinet", "Личный кабинет")
         # admin_redeem_points удалена из публичных команд
     ])
+
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработка непойманных исключений."""
+    logger.error(f"Exception while handling update {update}", exc_info=context.error)
+
+    if update and hasattr(update, 'effective_message'):
+        try:
+            await update.effective_message.reply_text(
+                "Извините, произошла ошибка. Попробуйте позже."
+            )
+        except Exception:
+            pass
+
 
 def main() -> None:
     """Start the bot."""
@@ -76,10 +87,13 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.Regex(r'^\+79\d{9}$') & ~filters.COMMAND, handlers.handle_phone_number_input))  # Для ручного ввода номера
     application.add_handler(MessageHandler(filters.CONTACT & ~filters.COMMAND, handlers.handle_contact_share)) # Для кнопки "Поделиться номером"
 
+    application.add_error_handler(error_handler)
+
     # Запуск бота в режиме long polling (для удобства тестирования)
     # Для вебхуков нужна дополнительная настройка, которая зависит от окружения
     logger.info("Бот запускается в режиме Long Polling.")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
+
 
 if __name__ == '__main__':
     main()

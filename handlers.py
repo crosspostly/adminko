@@ -3,14 +3,16 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Keyboar
 from telegram.ext import ContextTypes
 import logging
 
-from .data_manager import get_user, update_user, load_codes_data, save_codes_data
-from .config import TEST_QUESTIONS, ADMIN_NOTIFICATION_CHAT_ID
-from .utils import generate_redeem_code, format_date_for_ru
+from data_manager import get_user, update_user, load_codes_data, save_codes_data
+from config import TEST_QUESTIONS, ADMIN_NOTIFICATION_CHAT_ID
+from utils import generate_redeem_code, format_date_for_ru, validate_phone_number
 
 logger = logging.getLogger(__name__)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
+    username = update.effective_user.username
+    logger.info("User %d (%s) executed command", user_id, username or "no username")
     user_data = get_user(user_id)
 
     if not user_data:
@@ -74,13 +76,16 @@ async def our_services(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # Определяем, был ли вызов через команду или CallbackQuery
     if update.callback_query:
         query = update.callback_query
-        user_id = query.from_user.id
+        user = query.from_user
+        user_id = user.id
         await query.answer()
         message_editor = query.edit_message_text
     else:
-        user_id = update.effective_user.id
+        user = update.effective_user
+        user_id = user.id
         message_editor = update.message.reply_text
 
+    logger.info("User %d (%s) executed command", user_id, user.username or "no username")
     user_data = get_user(user_id)
     
     bonus_reminder_text = ""
@@ -115,11 +120,14 @@ async def our_services(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def contact_us(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.callback_query:
         query = update.callback_query
+        user = query.from_user
         await query.answer()
         message_editor = query.edit_message_text
     else:
+        user = update.effective_user
         message_editor = update.message.reply_text
 
+    logger.info("User %d (%s) executed command", user.id, user.username or "no username")
     text = (
         "📞 **Контакты и О нас** ℹ️
 
@@ -264,7 +272,9 @@ async def order_diagnostic_menu(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
 
-    user_id = query.from_user.id
+    user = query.from_user
+    user_id = user.id
+    logger.info("User %d (%s) executed command", user_id, user.username or "no username")
     user_data = get_user(user_id)
     
     first_name = query.from_user.first_name if query.from_user.first_name else "пользователь"
@@ -298,8 +308,10 @@ async def request_phone_number_menu(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     await query.answer()
 
-    user_id = query.from_user.id
-    first_name = query.from_user.first_name if query.from_user.first_name else "пользователь"
+    user = query.from_user
+    user_id = user.id
+    logger.info("User %d (%s) executed command", user_id, user.username or "no username")
+    first_name = user.first_name if user.first_name else "пользователь"
 
     text = (
         f"Привет, {first_name}! 👋 Чтобы мы могли с вами связаться, " +
@@ -323,13 +335,15 @@ async def handle_phone_number_input(update: Update, context: ContextTypes.DEFAUL
     if context.user_data.get('state') != 'awaiting_phone_number':
         return # Игнорируем, если не ждем номер телефона
 
-    user_id = update.effective_user.id
+    user = update.effective_user
+    user_id = user.id
     phone_number = update.message.text
-    first_name = update.effective_user.first_name if update.effective_user.first_name else "Неизвестный"
-    username = update.effective_user.username if update.effective_user.username else ""
+    first_name = user.first_name if user.first_name else "Неизвестный"
+    username = user.username if user.username else ""
+    logger.info("User %d (%s) executed command", user_id, username or "no username")
 
     # Простая проверка формата номера телефона
-    if not (phone_number.startswith('+7') and len(phone_number) == 12 and phone_number[1:].isdigit()):
+    if not validate_phone_number(phone_number):
         await update.message.reply_text("Неверный формат номера. Пожалуйста, введите номер в формате +79XXXXXXXXX.", reply_markup=ReplyKeyboardRemove())
         return
 
@@ -375,10 +389,12 @@ async def handle_contact_share(update: Update, context: ContextTypes.DEFAULT_TYP
     if context.user_data.get('state') != 'awaiting_phone_number':
         return # Игнорируем, если не ждем номер телефона
 
-    user_id = update.effective_user.id
+    user = update.effective_user
+    user_id = user.id
     phone_number = update.message.contact.phone_number
-    first_name = update.effective_user.first_name if update.effective_user.first_name else "Неизвестный"
-    username = update.effective_user.username if update.effective_user.username else ""
+    first_name = user.first_name if user.first_name else "Неизвестный"
+    username = user.username if user.username else ""
+    logger.info("User %d (%s) executed command", user_id, username or "no username")
 
     user_data = get_user(user_id) # Assume get_user is available in bot.py
     if user_data:
@@ -421,15 +437,18 @@ async def personal_account(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     # Определяем, был ли вызов через команду или CallbackQuery
     if update.callback_query:
         query = update.callback_query
-        user_id = query.from_user.id
-        first_name = query.from_user.first_name
+        user = query.from_user
+        user_id = user.id
+        first_name = user.first_name
         await query.answer() # Отвечаем на CallbackQuery
         message_editor = query.edit_message_text
     else:
-        user_id = update.effective_user.id
-        first_name = update.effective_user.first_name
+        user = update.effective_user
+        user_id = user.id
+        first_name = user.first_name
         message_editor = update.message.reply_text
 
+    logger.info("User %d (%s) executed command", user_id, user.username or "no username")
     user_data = get_user(user_id)
 
     if not user_data:
@@ -489,7 +508,9 @@ async def use_points_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     query = update.callback_query
     await query.answer()
 
-    user_id = query.from_user.id
+    user = query.from_user
+    user_id = user.id
+    logger.info("User %d (%s) executed command", user_id, user.username or "no username")
     user_data = get_user(user_id)
 
     if not user_data or (user_data["bonus_points_current"] == 0 and user_data["regular_points"] == 0):
