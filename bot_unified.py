@@ -25,12 +25,28 @@ logger = logging.getLogger(__name__)
 
 async def post_init_tg(application: Application):
     """Callback function to set up the bot after it has been initialized."""
+    # Установка команд в меню
     await application.bot.set_my_commands([
         ("start", "Начать взаимодействие с ботом"),
         ("menu", "Список наших услуг"),
         ("contact", "Контакты и о нас"),
         ("cabinet", "Личный кабинет")
     ])
+    
+    # Установка описания бота (то, что видно ДО нажатия Старт)
+    # Устанавливаем и как дефолтное, и явно для 'ru', чтобы пробить кеш
+    await application.bot.set_my_description(description=handlers.BOT_DESCRIPTION)
+    await application.bot.set_my_description(description=handlers.BOT_DESCRIPTION, language_code='ru')
+    
+    # Установка краткого описания (видно в профиле)
+    await application.bot.set_my_short_description(short_description=handlers.BOT_SHORT_DESCRIPTION)
+    await application.bot.set_my_short_description(short_description=handlers.BOT_SHORT_DESCRIPTION, language_code='ru')
+    
+    # Установка "About" (текст в профиле бота)
+    await application.bot.set_my_about_text(about_text=handlers.BOT_SHORT_DESCRIPTION)
+    await application.bot.set_my_about_text(about_text=handlers.BOT_SHORT_DESCRIPTION, language_code='ru')
+    
+    logger.info("Telegram Bot info and commands updated.")
 
 async def run_telegram():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")

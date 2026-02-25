@@ -20,6 +20,7 @@ from texts import (
     TEST_RESULTS_0_1, TEST_RESULTS_2_4, TEST_RESULTS_5_8,
     TEST_RESULTS_BONUS_NEW, TEST_RESULTS_BONUS_EXISTING,
     USE_POINTS_CODE_GENERATED, USE_POINTS_NO_POINTS,
+    BOT_DESCRIPTION, BOT_SHORT_DESCRIPTION
 )
 from utils import generate_redeem_code, format_date_for_ru
 import core_logic
