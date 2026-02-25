@@ -6,6 +6,15 @@ import logging
 from data_manager import get_user, update_user, load_codes_data, save_codes_data
 from config import ADMIN_NOTIFICATION_CHAT_ID, MANAGER_IDS
 from utils import generate_redeem_code, is_manager, format_date_for_ru
+from texts import (
+    ADMIN_NO_ACCESS, ADMIN_ENTER_CODE_PROMPT, ADMIN_INVALID_CODE, ADMIN_CODE_EXPIRED,
+    ADMIN_ENTER_ORDER_SUM, ADMIN_INVALID_SUM, ADMIN_CLIENT_NOT_FOUND, ADMIN_UNKNOWN_STATE,
+    ADMIN_CLIENT_ERROR, ADMIN_PREVIEW_CALCULATION, CLIENT_CONFIRM_REQUEST,
+    CLIENT_REDEEM_SUCCESS, MANAGER_REDEEM_CONFIRMED, ADMIN_REDEEM_COMPLETED,
+    ADMIN_CANCELED_BY_MANAGER, ADMIN_NOTIFY_CANCELED_BY_MANAGER,
+    CLIENT_CANCELED_BY_CLIENT, ADMIN_NOTIFY_CANCELED_BY_CLIENT, MANAGER_NOTIFY_CANCELED_BY_CLIENT,
+    CLIENT_REDEEM_ERROR, CLIENT_REDEEM_NOT_FOUND, ADMIN_SEND_ERROR, ADMIN_SENT_TO_CLIENT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +31,11 @@ async def admin_redeem_points_start(update: Update, context: ContextTypes.DEFAUL
     Запрашивает 6-значный код клиента для списания баллов.
     """
     if not is_manager(update.effective_user.id):  # Проверка прав менеджера
-        await update.message.reply_text("У вас нет прав администратора для этой команды.")
+        await update.message.reply_text(ADMIN_NO_ACCESS)
         return
 
     await update.message.reply_text(
-        "Введите 6-значный код клиента для списания баллов:",
+        ADMIN_ENTER_CODE_PROMPT,
         reply_markup=ForceReply(selective=True)
     )
     # Устанавливаем состояние 'awaiting_redeem_code' для пользователя менеджера,
@@ -51,23 +60,23 @@ async def handle_manager_input(update: Update, context: ContextTypes.DEFAULT_TYP
 
         # Проверка кода
         if not code_info:
-            await update.message.reply_text("Неверный код или срок действия истек. Попробуйте еще раз.")
-            context.user_data['state'] = None # Сброс состояния
+            await update.message.reply_text(ADMIN_INVALID_CODE)
+            context.user_data['state'] = None
             return
 
         # Проверка статуса и срока действия кода (10 минут)
         if code_info["status"] != "pending" or (datetime.now() - datetime.fromisoformat(code_info["generated_at"])).total_seconds() > 600:
-            await update.message.reply_text("Код недействителен или срок действия истек. Попробуйте еще раз.")
-            context.user_data['state'] = None # Сброс состояния
+            await update.message.reply_text(ADMIN_CODE_EXPIRED)
+            context.user_data['state'] = None
             return
 
         # Сохраняем код для следующего шага и переходим к запросу суммы заказа
         context.user_data['redeem_code_in_progress'] = redeem_code
         await update.message.reply_text(
-            "Введите сумму заказа (например, 1500.50):",
+            ADMIN_ENTER_ORDER_SUM,
             reply_markup=ForceReply(selective=True)
         )
-        context.user_data['state'] = 'awaiting_order_sum' # Переход к следующему состоянию
+        context.user_data['state'] = 'awaiting_order_sum'
         return
 
     # Шаг 2: Ожидание суммы заказа
@@ -78,7 +87,7 @@ async def handle_manager_input(update: Update, context: ContextTypes.DEFAULT_TYP
             if order_sum <= 0:
                 raise ValueError
         except ValueError:
-            await update.message.reply_text("Неверный формат суммы. Введите числовое значение.")
+            await update.message.reply_text(ADMIN_INVALID_SUM)
             return
 
         redeem_code = context.user_data.get('redeem_code_in_progress')
@@ -87,7 +96,7 @@ async def handle_manager_input(update: Update, context: ContextTypes.DEFAULT_TYP
 
         # Повторная проверка кода и статуса
         if not code_info or code_info["status"] != "pending":
-            await update.message.reply_text("Ошибка с кодом. Попробуйте заново начать с /admin_redeem_points.")
+            await update.message.reply_text(ADMIN_CLIENT_ERROR)
             context.user_data['state'] = None
             context.user_data['redeem_code_in_progress'] = None
             return
@@ -95,7 +104,7 @@ async def handle_manager_input(update: Update, context: ContextTypes.DEFAULT_TYP
         client_user_id = code_info["user_id"]
         client_user_data = get_user(client_user_id)
         if not client_user_data:
-            await update.message.reply_text("Клиент не найден. Возможно, пользователь удален.")
+            await update.message.reply_text(ADMIN_CLIENT_NOT_FOUND)
             context.user_data['state'] = None
             context.user_data['redeem_code_in_progress'] = None
             return
@@ -125,27 +134,26 @@ async def handle_manager_input(update: Update, context: ContextTypes.DEFAULT_TYP
         }
 
         # Предварительный расчет для менеджера
-        text = (
-            f"Предварительный расчет:\n" +
-            f"Клиент: {client_user_data.get('first_name', 'Неизвестно')} (`{client_user_id}`)\n" +
-            f"Сумма заказа: **{order_sum:.2f}** руб.\n" +
-            f"Доступно баллов: {total_available_points:.2f} руб.\n" +
-            f"Макс. к списанию (30% от заказа): {max_redeem_from_order:.2f} руб.\n" +
-            f"**Будет списано: {points_to_redeem:.2f} руб.**\n" +
-            f"**Итого к оплате: {final_price:.2f} руб.**\n\n" +
-            "Отправить запрос на подтверждение клиенту?"
+        text = ADMIN_PREVIEW_CALCULATION.format(
+            client_name=client_user_data.get('first_name', 'Неизвестно'),
+            client_id=client_user_id,
+            order_sum=order_sum,
+            available_points=total_available_points,
+            max_redeem=max_redeem_from_order,
+            points_to_redeem=points_to_redeem,
+            final_price=final_price
         )
         keyboard = [
             [InlineKeyboardButton("Отправить подтверждение клиенту", callback_data='send_client_confirm')],
             [InlineKeyboardButton("Отменить операцию", callback_data='cancel_redeem_admin')],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='HTML')
         context.user_data['state'] = 'awaiting_manager_confirm' # Переход к состоянию ожидания подтверждения менеджера
         return
 
     else:
-        await update.message.reply_text("Неизвестное состояние. Пожалуйста, начните заново.")
+        await update.message.reply_text(ADMIN_UNKNOWN_STATE)
 
 async def send_client_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -157,7 +165,7 @@ async def send_client_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     redemption_info = context.user_data.get('current_redemption')
     if not redemption_info:
-        await query.edit_message_text("Ошибка: информация о списании не найдена. Попробуйте заново.")
+        await query.edit_message_text(ADMIN_SEND_ERROR)
         return
 
     client_user_id = redemption_info["client_id"]
@@ -166,12 +174,11 @@ async def send_client_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE
     final_price = redemption_info["final_price"]
     manager_name = redemption_info.get("manager_name", "Менеджер")
 
-    text = (
-        f"Подтвердите списание баллов:\n\n" +
-        f"Ваш менеджер **{manager_name}** оформил услугу на сумму **{order_sum:.2f} руб.**\n" +
-        f"Будет списано: **{points_to_redeem:.2f} руб.**\n" +
-        f"**Итого к оплате наличными менеджеру: {final_price:.2f} руб.**\n\n" +
-        "Вы подтверждаете?"
+    text = CLIENT_CONFIRM_REQUEST.format(
+        manager_name=manager_name,
+        order_sum=order_sum,
+        points_to_redeem=points_to_redeem,
+        final_price=final_price
     )
     keyboard = [
         [InlineKeyboardButton("Подтвердить", callback_data=f'confirm_redeem_{redemption_info["code"]}')],
@@ -180,9 +187,9 @@ async def send_client_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     # Отправляем сообщение клиенту
-    await context.bot.send_message(chat_id=client_user_id, text=text, reply_markup=reply_markup, parse_mode='Markdown')
+    await context.bot.send_message(chat_id=client_user_id, text=text, reply_markup=reply_markup, parse_mode='HTML')
 
-    await query.edit_message_text("Запрос на подтверждение отправлен клиенту.", parse_mode='Markdown')
+    await query.edit_message_text(ADMIN_SENT_TO_CLIENT, parse_mode='HTML')
     # Сброс состояний менеджера после отправки запроса
     context.user_data['state'] = None
     context.user_data['redeem_code_in_progress'] = None
@@ -204,7 +211,7 @@ async def confirm_redeem(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Проверка валидности кода и соответствия пользователя
     if not code_info or code_info["user_id"] != user_id or code_info["status"] != "pending":
-        await query.edit_message_text("Ошибка: код недействителен или уже использован.")
+        await query.edit_message_text(CLIENT_REDEEM_ERROR)
         return
 
     # Обновляем статус кода на "использован"
@@ -223,7 +230,7 @@ async def confirm_redeem(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     else:
         remaining_to_redeem = points_to_redeem - client_user_data["bonus_points_current"]
         client_user_data["bonus_points_current"] = 0
-        client_user_data["regular_points"] -= remaining_to_redeem  # Списываем из регулярных, если бонусов не хватило
+        client_user_data["regular_points"] -= remaining_to_redeem
 
     # Отключаем напоминания о бонусе, если он использован
     if points_to_redeem > 0:
@@ -231,36 +238,38 @@ async def confirm_redeem(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     update_user(user_id, client_user_data)
 
     # Уведомление клиенту об успешном списании
-    text_client = (
-        "✅ Баллы успешно списаны!\n\n" +
-        f"Ваш новый баланс: **{client_user_data['bonus_points_current']} руб.** (бонусы) / **{client_user_data['regular_points']} руб.** (обычные).\n" +
-        f"К оплате менеджеру: **{final_price:.2f} руб.**\n\n" +
-        "Спасибо за выбор наших услуг!"
+    text_client = CLIENT_REDEEM_SUCCESS.format(
+        bonus_points=client_user_data['bonus_points_current'],
+        regular_points=client_user_data['regular_points'],
+        final_price=final_price
     )
-    await query.edit_message_text(text_client, parse_mode='Markdown')
+    await query.edit_message_text(text_client, parse_mode='HTML')
 
     # Уведомление менеджеру (если был менеджер)
     if manager_id:
-        text_manager = (
-            f"✅ Списание баллов для клиента {client_user_data.get('first_name', 'Неизвестно')} (`{user_id}`) подтверждено.\n" +
-            f"Код: `{redeem_code}`.\n" +
-            f"Списано: **{points_to_redeem:.2f} руб.**\n" +
-            f"Итого к оплате: **{final_price:.2f} руб.**\n" +
-            f"Сумма заказа: **{order_sum:.2f} руб.**\n"
+        text_manager = MANAGER_REDEEM_CONFIRMED.format(
+            client_name=client_user_data.get('first_name', 'Неизвестно'),
+            client_id=user_id,
+            code=redeem_code,
+            points_to_redeem=points_to_redeem,
+            final_price=final_price,
+            order_sum=order_sum
         )
-        await context.bot.send_message(chat_id=manager_id, text=text_manager, parse_mode='Markdown')
-        
+        await context.bot.send_message(chat_id=manager_id, text=text_manager, parse_mode='HTML')
+
     # Уведомление администратору о завершении списания
-    admin_message = (
-        f"✅ **Списание баллов завершено!**\n" +
-        f"Клиент: {client_user_data.get('first_name', 'Неизвестно')} (`{user_id}`)\n" +
-        f"Менеджер: {code_info.get('manager_name', 'Неизвестно')} (`{manager_id}`)\n" +
-        f"Сумма заказа: **{order_sum:.2f} руб.**\n" +
-        f"Списано баллов: **{points_to_redeem:.2f} руб.**\n"
-        f"Итого к оплате: **{final_price:.2f} руб.**\n"
-        f"Новый баланс клиента: {client_user_data['bonus_points_current']} (бонусы) / {client_user_data['regular_points']} (обычные).\n"
+    admin_message = ADMIN_REDEEM_COMPLETED.format(
+        client_name=client_user_data.get('first_name', 'Неизвестно'),
+        client_id=user_id,
+        manager_name=code_info.get('manager_name', 'Неизвестно'),
+        manager_id=manager_id,
+        order_sum=order_sum,
+        points_to_redeem=points_to_redeem,
+        final_price=final_price,
+        bonus_points=client_user_data['bonus_points_current'],
+        regular_points=client_user_data['regular_points']
     )
-    await context.bot.send_message(chat_id=ADMIN_NOTIFICATION_CHAT_ID, text=admin_message, parse_mode='Markdown')
+    await context.bot.send_message(chat_id=ADMIN_NOTIFICATION_CHAT_ID, text=admin_message, parse_mode='HTML')
 
 async def cancel_redeem_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -283,15 +292,15 @@ async def cancel_redeem_admin(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data['redeem_code_in_progress'] = None
         context.user_data['current_redemption'] = None
 
-        await query.edit_message_text("❌ Операция списания баллов отменена менеджером.", parse_mode='Markdown')
-        
+        await query.edit_message_text(ADMIN_CANCELED_BY_MANAGER, parse_mode='HTML')
+
         # Уведомление администратору об отмене
-        admin_message = (
-            f"❌ **Операция списания баллов отменена менеджером!**\n" +
-            f"Менеджер: {query.from_user.first_name} (`{query.from_user.id}`)\n" +
-            f"Код клиента: `{redeem_code}`\n"
+        admin_message = ADMIN_NOTIFY_CANCELED_BY_MANAGER.format(
+            manager_name=query.from_user.first_name,
+            manager_id=query.from_user.id,
+            code=redeem_code
         )
-        await context.bot.send_message(chat_id=ADMIN_NOTIFICATION_CHAT_ID, text=admin_message, parse_mode='Markdown')
+        await context.bot.send_message(chat_id=ADMIN_NOTIFICATION_CHAT_ID, text=admin_message, parse_mode='HTML')
 
 async def cancel_redeem_client(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -308,25 +317,31 @@ async def cancel_redeem_client(update: Update, context: ContextTypes.DEFAULT_TYP
     code_info = codes_data.get(redeem_code)
 
     if code_info and code_info["user_id"] == user_id and code_info["status"] == "pending":
-        code_info["status"] = "canceled_by_client" # Обновляем статус кода
+        code_info["status"] = "canceled_by_client"
         save_codes_data(codes_data)
 
         # Уведомление менеджеру, если он был инициатором операции
         if code_info["manager_id"]:
+            text_manager = MANAGER_NOTIFY_CANCELED_BY_CLIENT.format(
+                client_name=query.from_user.first_name,
+                client_id=user_id,
+                code=redeem_code
+            )
             await context.bot.send_message(
                 chat_id=code_info["manager_id"],
-                text=f"❌ Клиент {query.from_user.first_name} (`{user_id}`) отклонил списание баллов по коду `{redeem_code}`.\n",
-                parse_mode='Markdown'
+                text=text_manager,
+                parse_mode='HTML'
             )
-        await query.edit_message_text("❌ Списание баллов отменено по вашему запросу.", parse_mode='Markdown')
-        
+        await query.edit_message_text(CLIENT_CANCELED_BY_CLIENT, parse_mode='HTML')
+
         # Уведомление администратору об отмене клиентом
-        admin_message = (
-            f"❌ **Клиент отклонил списание баллов!**\n"
-            f"Клиент: {query.from_user.first_name} (`{user_id}`)\n"
-            f"Менеджер: {code_info.get('manager_name', 'Неизвестно')} (`{code_info.get('manager_id', 'Неизвестно')}`)\n"
-            f"Код: `{redeem_code}`\n"
+        admin_message = ADMIN_NOTIFY_CANCELED_BY_CLIENT.format(
+            client_name=query.from_user.first_name,
+            client_id=user_id,
+            manager_name=code_info.get('manager_name', 'Неизвестно'),
+            manager_id=code_info.get('manager_id', 'Неизвестно'),
+            code=redeem_code
         )
-        await context.bot.send_message(chat_id=ADMIN_NOTIFICATION_CHAT_ID, text=admin_message, parse_mode='Markdown')
+        await context.bot.send_message(chat_id=ADMIN_NOTIFICATION_CHAT_ID, text=admin_message, parse_mode='HTML')
     else:
-        await query.edit_message_text("Ошибка: операция списания не найдена или уже завершена.")
+        await query.edit_message_text(CLIENT_REDEEM_NOT_FOUND)

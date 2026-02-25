@@ -4,7 +4,23 @@ from telegram.ext import ContextTypes
 import logging
 
 from data_manager import get_user, update_user, load_codes_data, save_codes_data
-from config import TEST_QUESTIONS, ADMIN_NOTIFICATION_CHAT_ID, DIAGNOSTIC_REQUEST_TEXT, REQUEST_PHONE_NUMBER_TEXT, PHONE_RECEIVED_CONFIRMATION, INVALID_PHONE_NUMBER_FORMAT, ADMIN_NEW_CALLBACK_REQUEST
+from config import ADMIN_NOTIFICATION_CHAT_ID, TEST_HINTS_SHOW_ALERT
+from texts import (
+    TEST_QUESTIONS, TEST_HINTS,
+    START_NEW_USER, START_RETURNING_USER_NO_BONUS, START_RETURNING_USER_WITH_BONUS,
+    OUR_SERVICES_TITLE,
+    SERVICE_REPAIR_PC_NOTEBOOKS_TITLE, SERVICE_REPAIR_PC_NOTEBOOKS_TEXT,
+    SERVICE_IT_SUPPORT_TITLE, SERVICE_IT_SUPPORT_TEXT,
+    SERVICE_VIDEO_SURVEILLANCE_TITLE, SERVICE_VIDEO_SURVEILLANCE_TEXT,
+    CONTACT_US_TITLE, CONTACT_US_TEXT,
+    DIAGNOSTIC_REQUEST_TEXT, REQUEST_PHONE_NUMBER_TEXT, PHONE_RECEIVED_CONFIRMATION,
+    INVALID_PHONE_NUMBER_FORMAT, ADMIN_NEW_CALLBACK_REQUEST,
+    CABINET_NO_POINTS, CABINET_HAS_POINTS_TITLE, CABINET_POINTS_INFO, CABINET_USE_POINTS_PROMPT, CABINET_NO_USER_ERROR,
+    TEST_RESULTS_INTRO, TEST_RESULTS_PROBLEM_COUNT,
+    TEST_RESULTS_0_1, TEST_RESULTS_2_4, TEST_RESULTS_5_8,
+    TEST_RESULTS_BONUS_NEW, TEST_RESULTS_BONUS_EXISTING,
+    USE_POINTS_CODE_GENERATED, USE_POINTS_NO_POINTS,
+)
 from utils import generate_redeem_code, format_date_for_ru
 
 logger = logging.getLogger(__name__)
@@ -33,30 +49,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "test_answers": [0]*8  # 0 - нет, 1 - да
         }
         update_user(user_id, user_data)
-        text = (
-            "Привет! 👋 Добро пожаловать в мир заботы о вашем ПК! Я — ваш надежный помощник, готовый раскрыть все секреты здоровья вашего компьютера. "
-            "Пройдите наш увлекательный **Экспресс-тест из 8 вопросов**, чтобы моментально узнать о потенциальных проблемах. "
-            "Это займет всего пару минут, а результат вас приятно удивит!\n\n" +
-            "А еще... за прохождение теста вас ждет ценный подарок! 🎁"
-        )
+        text = START_NEW_USER
     elif not user_data["bonus_given_flag"]:
-        text = (
-            "С возвращением! 👋 Рад снова видеть вас! Готовы узнать еще больше о вашем компьютере? "
-            "Наш **Экспресс-тест (8 вопросов)** поможет быстро выявить скрытые неполадки. "
-            "Всего пара минут — и полная картина у вас в руках!\n\n" +
-            "Не забудьте: за прохождение теста вас ждет классный подарок! 🎁"
-        )
+        text = START_RETURNING_USER_NO_BONUS
     else:
-        text = (
-            "Привет-привет! 👋 Снова здесь? Отлично! Ваш персональный помощник по здоровью компьютера к вашим услугам. "
-            "Если хотите, можете пройти наш **Экспресс-тест (8 вопросов)** еще раз, чтобы убедиться, что с вашим ПК всё в порядке. "
-            "Это быстро и полезно! 😉"
-        )
+        text = START_RETURNING_USER_WITH_BONUS
 
     keyboard = []
     if not user_data["bonus_given_flag"]:
         keyboard.append([InlineKeyboardButton("🚀 Начать Экспресс-тест", callback_data='start_test')])
-    
+
     keyboard.append([InlineKeyboardButton("💼 Наши услуги", callback_data='our_services_menu')])
     keyboard.append([InlineKeyboardButton("👤 Личный кабинет", callback_data='personal_account_menu')])
     keyboard.append([InlineKeyboardButton("ℹ️ Контакты", callback_data='contact_us_menu')])
@@ -64,9 +66,32 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     if update.callback_query:
-        await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+        await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode='HTML')
     else:
-        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='HTML')
+
+async def reset_test_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Команда /expmin - сбрасывает статус прохождения теста для пользователя.
+    Позволяет пройти тест заново и снова получить кнопку в меню.
+    """
+    user_id = update.effective_user.id
+    user_data = get_user(user_id)
+    
+    if user_data:
+        user_data["bonus_given_flag"] = False
+        user_data["test_progress"] = 0
+        user_data["test_answers"] = [0]*8
+        # Мы НЕ обнуляем накопленные баллы (regular_points), 
+        # но бонусные (bonus_points_current) сбрасываем, чтобы начислить их заново после теста.
+        user_data["bonus_points_current"] = 0
+        user_data["bonus_expiry_date"] = None
+        
+        update_user(user_id, user_data)
+        await update.message.reply_text("✅ Статус теста сброшен! Теперь вы можете пройти его заново через команду /start.")
+    else:
+        await update.message.reply_text("Пользователь не найден. Введите /start для регистрации.")
+
 
 async def our_services(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Определяем, был ли вызов через команду или CallbackQuery
@@ -90,19 +115,15 @@ async def our_services(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 f"**{format_date_for_ru(expiry_date_str)}**!"
             )
 
-    text = (
-        "Мы предлагаем широкий спектр услуг для частных клиентов и бизнеса: 💼\n\n"
-        "Выберите интересующую категорию, чтобы узнать подробнее: 👇"
-        f"{bonus_reminder_text}"
-    )
+    text = OUR_SERVICES_TITLE + bonus_reminder_text
     keyboard = [
         [InlineKeyboardButton("Ремонт ПК/Ноутбуков 💻", callback_data='service_repair_pc_notebooks')],
-        [InlineKeyboardButton("IT-обслуживание 🏢", callback_data='service_it_support_orgs')],
-        [InlineKeyboardButton("Монтаж видеонаблюдения 📹", callback_data='service_video_surveillance')],
+        [InlineKeyboardButton("Системное администрирование 🏢", callback_data='service_it_support_orgs')],
+        [InlineKeyboardButton("Видеонаблюдение, СКС, СКУД 📹", callback_data='service_video_surveillance')],
         [InlineKeyboardButton("Контакты ℹ️", callback_data='contact_us_menu'), InlineKeyboardButton("В меню 🏡", callback_data='start_menu_main')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await message_editor(text, reply_markup=reply_markup, parse_mode='Markdown')
+    await message_editor(text, reply_markup=reply_markup, parse_mode='HTML')
 
 async def contact_us(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.callback_query:
@@ -112,25 +133,17 @@ async def contact_us(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     else:
         message_editor = update.message.reply_text
 
-    text = (
-        "📞 **Контакты** ℹ️\n\n"
-        "Мы всегда рады помочь вам с любыми вопросами, связанными с ремонтом и обслуживанием компьютерной техники, "
-        "IT-поддержкой и установкой систем видеонаблюдения.\n\n"
-        "**Наши контакты:**\n"
-        "🔹 Телефон: +7 (3842) 76-76-76\n"
-        "🔹 Email: `info@admin-ko.ru`\n"
-        "🔹 Сайт: [admin-ko.ru](https://admin-ko.ru)\n\n"
-        "Мы работаем, чтобы ваша техника работала без сбоев, а бизнес процветал благодаря надежной IT-инфраструктуре!\n"
-    )
+    text = CONTACT_US_TITLE + CONTACT_US_TEXT
     keyboard = [
         [InlineKeyboardButton("↩️ Главное меню", callback_data='start_menu_main')],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await message_editor(text, reply_markup=reply_markup, parse_mode='Markdown', disable_web_page_preview=True)
+    await message_editor(text, reply_markup=reply_markup, parse_mode='HTML', disable_web_page_preview=True)
 
-async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE, answered: bool = False) -> None:
     query = update.callback_query
-    await query.answer()
+    if not answered:
+        await query.answer()
 
     user_id = query.from_user.id
     user_data = get_user(user_id)
@@ -141,7 +154,7 @@ async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     current_question_index = user_data["test_progress"]
 
     if current_question_index >= len(TEST_QUESTIONS):
-        await show_test_results(update, context)
+        await show_test_results(update, context, answered=True)
         return
 
     question_text = TEST_QUESTIONS[current_question_index]["text"]
@@ -149,94 +162,140 @@ async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         [
             InlineKeyboardButton("Да", callback_data=f'test_answer_{current_question_index}_1'),
             InlineKeyboardButton("Нет", callback_data=f'test_answer_{current_question_index}_0'),
-            InlineKeyboardButton("Не знаю", callback_data=f'test_answer_{current_question_index}_0')
+            InlineKeyboardButton("Не знаю", callback_data=f'test_answer_{current_question_index}_2')
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(
-        f"Вопрос {current_question_index + 1}/8: {question_text}",
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
+    try:
+        await query.edit_message_text(
+            f"Вопрос {current_question_index + 1}/8: {question_text}",
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+    except Exception as e:
+        logger.error(f"Error in ask_question: {e}")
+
+async def next_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    user_data = get_user(user_id)
+    if user_data is None:
+        await query.edit_message_text("Произошла ошибка. Пожалуйста, начните с команды /start.")
+        return
+
+    try:
+        _, _, question_index_str = query.data.split('_')
+        question_index = int(question_index_str)
+        user_data["test_progress"] = question_index
+        update_user(user_id, user_data)
+        await ask_question(update, context, answered=True)
+    except Exception as e:
+        logger.error(f"Error in next_question: {e}")
 
 async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    await query.answer()
-
     user_id = query.from_user.id
     user_data = get_user(user_id)
     if user_data is None:
-        await query.edit_message_text("Произошла ошибка. Пожалуйста, начните с команды /start.")
+        await query.answer(show_alert=True, text="Произошла ошибка. Пожалуйста, начните с команды /start.")
         return
 
-    _, _, question_index_str, answer_str = query.data.split('_')
-    question_index = int(question_index_str)
-    answer = int(answer_str)
+    try:
+        _, _, question_index_str, answer_str = query.data.split('_')
+        question_index = int(question_index_str)
+        answer = int(answer_str)
+        
+        # 'Не знаю' (2) обрабатываем как 'Нет' (0)
+        if answer == 2:
+            answer = 0
 
-    if question_index != user_data["test_progress"]:
-        # Пользователь ответил на старый вопрос, игнорируем
-        return
+        if question_index != user_data["test_progress"]:
+            # Пользователь ответил на старый вопрос или на вопрос из другого сеанса
+            # Показываем актуальный вопрос, чтобы он не застрял
+            await query.answer(show_alert=False, text="Показываю актуальный вопрос...")
+            await ask_question(update, context, answered=True)
+            return
 
-    user_data["test_answers"][question_index] = answer
-    user_data["test_progress"] += 1
-    update_user(user_id, user_data)
-
-    if user_data["test_progress"] < len(TEST_QUESTIONS):
-        await ask_question(update, context)  # Следующий вопрос
-    else:
-        await show_test_results(update, context)  # Результаты теста
-
-async def show_test_results(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    await query.answer()
-
-    user_id = query.from_user.id
-    user_data = get_user(user_id)
-    if user_data is None:
-        await query.edit_message_text("Произошла ошибка. Пожалуйста, начните с команды /start.")
-        return
-
-    positive_answers = sum(user_data["test_answers"])
-    result_text = f"По нашим данным, у вашего компьютера есть **{positive_answers}** потенциальных проблем. "
-
-    if 0 <= positive_answers <= 1:
-        result_text += "Кажется, ваш компьютер в хорошем состоянии! Но профилактика никогда не помешает."
-    elif 2 <= positive_answers <= 4:
-        result_text += "Есть над чем поработать. Рекомендуем обратить внимание на эти моменты."
-    elif 5 <= positive_answers <= 8:
-        result_text += "Вашему компьютеру определенно нужна помощь! Не откладывайте диагностику."
-
-    bonus_info_text = ""
-    if not user_data["bonus_given_flag"]:
-        user_data["bonus_points_current"] = user_data["bonus_points_initial"]
-        user_data["bonus_expiry_date"] = (datetime.now() + timedelta(weeks=2)).isoformat()
-        user_data["bonus_given_flag"] = True
-        user_data["bonus_reminders_active"] = True
+        user_data["test_answers"][question_index] = answer
+        user_data["test_progress"] += 1
         update_user(user_id, user_data)
 
-        bonus_info_text = (
-            f"\n\n**Ваш приятный подарок!** За прохождение теста мы **зачислили 1000 рублей** на ваш счет! " +
-            "Эти средства вы можете использовать для оплаты любых наших услуг. " +
-            f"**Важно:** Бонус действует **до {format_date_for_ru(user_data['bonus_expiry_date'])}**. Успейте воспользоваться!"
-        )
-    elif user_data["bonus_given_flag"] and user_data["bonus_points_current"] > 0 and datetime.fromisoformat(user_data["bonus_expiry_date"]) > datetime.now():
-        bonus_info_text = (
-            f"\n\nНапоминаем, что у вас есть **{user_data['bonus_points_current']} рублей** на счету, " +
-            f"которые вы можете использовать для оплаты диагностики или других услуг до " +
-            f"**{format_date_for_ru(user_data['bonus_expiry_date'])}**."
-        )
+        # Показываем подсказку после ответа (всплывающее окно)
+        hint_text = TEST_HINTS[question_index]
 
-    text = f"Отлично! Вы завершили Экспресс-тест. {result_text}{bonus_info_text}"
-    keyboard = [
-        [InlineKeyboardButton("Заказать бесплатную диагностику 🛠️", callback_data='order_diagnostic_menu')],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+        if user_data["test_progress"] < len(TEST_QUESTIONS):
+            # Ещё есть вопросы — показываем подсказку и автоматически переходим к следующему
+            await query.answer(show_alert=TEST_HINTS_SHOW_ALERT, text=hint_text)
+            await ask_question(update, context, answered=True)
+        else:
+            # Тест завершён — показываем подсказку и автоматически переходим к результатам
+            await query.answer(show_alert=TEST_HINTS_SHOW_ALERT, text=hint_text)
+            await show_test_results(update, context, answered=True)
+    except Exception as e:
+        logger.error(f"Error in handle_test_answer: {e}")
+        await query.answer(show_alert=True, text="Произошла ошибка при обработке ответа.")
 
-    # Сброс прогресса теста
-    user_data["test_progress"] = 0
-    user_data["test_answers"] = [0]*8
-    update_user(user_id, user_data)
+async def show_test_results(update: Update, context: ContextTypes.DEFAULT_TYPE, answered: bool = False) -> None:
+    query = update.callback_query
+    if not answered:
+        await query.answer()
+
+    user_id = query.from_user.id
+    user_data = get_user(user_id)
+    if user_data is None:
+        await query.edit_message_text("Произошла ошибка. Пожалуйста, начните с команды /start.")
+        return
+
+    try:
+        positive_answers = sum(user_data["test_answers"])
+        result_text = TEST_RESULTS_PROBLEM_COUNT.format(count=positive_answers)
+
+        if 0 <= positive_answers <= 1:
+            result_text += TEST_RESULTS_0_1
+        elif 2 <= positive_answers <= 4:
+            result_text += TEST_RESULTS_2_4
+        elif 5 <= positive_answers <= 8:
+            result_text += TEST_RESULTS_5_8
+
+        bonus_info_text = ""
+        if not user_data["bonus_given_flag"]:
+            user_data["bonus_points_current"] = user_data["bonus_points_initial"]
+            user_data["bonus_expiry_date"] = (datetime.now() + timedelta(weeks=2)).isoformat()
+            user_data["bonus_given_flag"] = True
+            user_data["bonus_reminders_active"] = True
+            update_user(user_id, user_data)
+
+            bonus_info_text = TEST_RESULTS_BONUS_NEW.format(
+                expiry_date=format_date_for_ru(user_data['bonus_expiry_date'])
+            )
+        elif user_data["bonus_given_flag"] and user_data["bonus_points_current"] > 0:
+            # Проверка на наличие даты истечения
+            expiry_date_str = user_data.get("bonus_expiry_date")
+            if expiry_date_str and datetime.fromisoformat(expiry_date_str) > datetime.now():
+                bonus_info_text = TEST_RESULTS_BONUS_EXISTING.format(
+                    points=user_data['bonus_points_current'],
+                    expiry_date=format_date_for_ru(expiry_date_str)
+                )
+
+        text = TEST_RESULTS_INTRO + result_text + bonus_info_text
+        keyboard = [
+            [InlineKeyboardButton("Заказать бесплатную диагностику 🛠️", callback_data='order_diagnostic_menu')],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='HTML')
+
+        # Сброс прогресса теста в любом случае после показа результатов
+        user_data["test_progress"] = 0
+        user_data["test_answers"] = [0]*8
+        update_user(user_id, user_data)
+    except Exception as e:
+        logger.error(f"Error in show_test_results: {e}")
+        # При ошибке все равно пытаемся сбросить прогресс, чтобы пользователь не застрял
+        user_data["test_progress"] = 0
+        update_user(user_id, user_data)
+        await query.edit_message_text("Произошла ошибка при показе результатов. Пожалуйста, попробуйте снова /start.")
 
 async def order_diagnostic_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -262,7 +321,7 @@ async def order_diagnostic_menu(update: Update, context: ContextTypes.DEFAULT_TY
         [InlineKeyboardButton("Связаться с нами 📞", callback_data='request_callback')],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='HTML')
 
 async def request_phone_number_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -315,7 +374,7 @@ async def handle_phone_number_input(update: Update, context: ContextTypes.DEFAUL
 
         text = PHONE_RECEIVED_CONFIRMATION.format(first_name=first_name, phone_number=phone_number) + bonus_reminder_text
 
-        await update.message.reply_text(text, reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
+        await update.message.reply_text(text, reply_markup=ReplyKeyboardRemove(), parse_mode='HTML')
         context.user_data['state'] = None
         
         admin_message = ADMIN_NEW_CALLBACK_REQUEST.format(
@@ -324,7 +383,7 @@ async def handle_phone_number_input(update: Update, context: ContextTypes.DEFAUL
             username=username,
             phone_number=phone_number
         )
-        await context.bot.send_message(chat_id=ADMIN_NOTIFICATION_CHAT_ID, text=admin_message, parse_mode='Markdown')
+        await context.bot.send_message(chat_id=ADMIN_NOTIFICATION_CHAT_ID, text=admin_message, parse_mode='HTML')
     else:
         await update.message.reply_text("Произошла ошибка. Пожалуйста, начните с команды /start.", reply_markup=ReplyKeyboardRemove())
 
@@ -353,7 +412,7 @@ async def handle_contact_share(update: Update, context: ContextTypes.DEFAULT_TYP
 
         text = PHONE_RECEIVED_CONFIRMATION.format(first_name=first_name, phone_number=phone_number) + bonus_reminder_text
 
-        await update.message.reply_text(text, reply_markup=ReplyKeyboardRemove(), parse_mode='Markdown')
+        await update.message.reply_text(text, reply_markup=ReplyKeyboardRemove(), parse_mode='HTML')
         context.user_data['state'] = None # Сбрасываем состояние
 
         admin_message = ADMIN_NEW_CALLBACK_REQUEST.format(
@@ -362,7 +421,7 @@ async def handle_contact_share(update: Update, context: ContextTypes.DEFAULT_TYP
             username=username,
             phone_number=phone_number
         )
-        await context.bot.send_message(chat_id=ADMIN_NOTIFICATION_CHAT_ID, text=admin_message, parse_mode='Markdown')
+        await context.bot.send_message(chat_id=ADMIN_NOTIFICATION_CHAT_ID, text=admin_message, parse_mode='HTML')
     else:
         await update.message.reply_text("Произошла ошибка. Пожалуйста, начните с команды /start.", reply_markup=ReplyKeyboardRemove())
 
@@ -384,37 +443,32 @@ async def personal_account(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not user_data:
         # Если это CallbackQuery, отвечаем через edit_message_text
         if update.callback_query:
-            await update.callback_query.edit_message_text("Пожалуйста, начните с команды /start.")
-        else: # Иначе через reply_text
-            await update.message.reply_text("Пожалуйста, начните с команды /start.")
+            await update.callback_query.edit_message_text(CABINET_NO_USER_ERROR)
+        else:
+            await update.message.reply_text(CABINET_NO_USER_ERROR)
         return
 
     bonus_info = ""
     if user_data.get("bonus_points_current", 0) > 0 and user_data.get("bonus_expiry_date") and datetime.fromisoformat(user_data["bonus_expiry_date"]) > datetime.now():
-        bonus_info = (
-            f"   • Начислено бонусов: **{user_data['bonus_points_current']} руб.** " +
-            f"(действуют до: **{format_date_for_ru(user_data['bonus_expiry_date'])}**)\n"
+        bonus_info = CABINET_POINTS_INFO.format(
+            points=user_data['bonus_points_current'],
+            expiry_date=format_date_for_ru(user_data['bonus_expiry_date'])
         )
 
     regular_info = ""
     # if user_data["regular_points"] > 0:
     #     regular_info = f"   • Накоплено баллов: **{user_data['regular_points']} руб.**\n"
-    
+
     keyboard = []
-    
+
     if not bonus_info and not regular_info:
-        balance_text = "У вас пока нет активных баллов."
+        balance_text = CABINET_NO_POINTS
     else:
-        balance_text = (
-            f"📊 **Ваши баллы:**\n"
-            f"{bonus_info}{regular_info}\n\n"
-            "Используйте баллы для оплаты до **30%** от суммы заказа!\n\n"
-            "Хотите использовать баллы сейчас?"
-        )
+        balance_text = CABINET_HAS_POINTS_TITLE + bonus_info + regular_info + CABINET_USE_POINTS_PROMPT
         keyboard.append([InlineKeyboardButton("Использовать баллы", callback_data='use_points_start')])
 
     keyboard.append([InlineKeyboardButton("Вернуться в главное меню 🏡", callback_data='start_menu_main')])
-    
+
     final_text = f"Привет, {first_name}! Это ваш Личный кабинет.\n\n{balance_text}"
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -422,7 +476,7 @@ async def personal_account(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await message_editor(
         final_text,
         reply_markup=reply_markup,
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
 async def use_points_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -433,7 +487,7 @@ async def use_points_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     user_data = get_user(user_id)
 
     if not user_data or (user_data["bonus_points_current"] == 0 and user_data["regular_points"] == 0):
-        await query.edit_message_text("У вас нет баллов для списания.", parse_mode='Markdown')
+        await query.edit_message_text(USE_POINTS_NO_POINTS, parse_mode='HTML')
         return
 
     # Генерация кода для пользователя
@@ -450,63 +504,44 @@ async def use_points_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     }
     save_codes_data(codes_data)
 
-    text = (
-        f"Ваш код для менеджера: **`{code}`**\n\n" +
-        "Пожалуйста, покажите этот код менеджеру для применения скидки. " +
-        "Код действителен в течение **10 минут**."
-    )
+    text = USE_POINTS_CODE_GENERATED.format(code=code)
     keyboard = [
         [InlineKeyboardButton("Вернуться в Личный кабинет", callback_data='personal_account_menu')],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='HTML')
 
 
 # НОВЫЕ ФУНКЦИИ ДЛЯ КАТЕГОРИЙ УСЛУГ
 async def service_repair_pc_notebooks_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-    text = (
-        "**Ремонт ПК/Ноутбуков 💻:**\n\n"
-        "Мы выполняем полную диагностику, качественный ремонт и профессиональное обслуживание ваших компьютеров и ноутбуков. "
-        "Включает: чистку от пыли, замену неисправных компонентов, установку и настройку программного обеспечения, удаление вирусов. "
-        "С нами ваша техника будет работать как новая! ✨"
-    )
+    text = SERVICE_REPAIR_PC_NOTEBOOKS_TITLE + SERVICE_REPAIR_PC_NOTEBOOKS_TEXT
     keyboard = [
         [InlineKeyboardButton("Заказать бесплатную диагностику 🛠️", callback_data='order_diagnostic_menu')],
         [InlineKeyboardButton("Вернуться в Услуги 🔙", callback_data='our_services_menu')],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='HTML')
 
 async def service_it_support_orgs_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-    text = (
-        "**IT-обслуживание 🏢:**\n\n"
-        "Предлагаем комплексное IT-администрирование для вашего бизнеса. Это включает: "
-        "проактивный мониторинг инфраструктуры, регулярное резервное копирование данных, "
-        "обеспечение кибербезопасности, а также оперативное решение любых IT-вопросов. "
-        "Позвольте нам позаботиться о вашей IT, чтобы вы могли сосредоточиться на бизнесе! 🚀"
-    )
+    text = SERVICE_IT_SUPPORT_TITLE + SERVICE_IT_SUPPORT_TEXT
     keyboard = [
         [InlineKeyboardButton("Заказать бесплатную диагностику 🛠️", callback_data='order_diagnostic_menu')],
         [InlineKeyboardButton("Вернуться в Услуги 🔙", callback_data='our_services_menu')],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='HTML')
 
 async def service_video_surveillance_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-    text = (
-        "**Монтаж систем видеонаблюдения 📹:**\n\n"
-        "Разработаем индивидуальный проект системы видеонаблюдения, подберём оптимальное оборудование "
-        "и выполним профессиональный монтаж. Обеспечьте безопасность вашего объекта с надёжными системами! 🛡️"
-    )
+    text = SERVICE_VIDEO_SURVEILLANCE_TITLE + SERVICE_VIDEO_SURVEILLANCE_TEXT
     keyboard = [
         [InlineKeyboardButton("Заказать бесплатную диагностику 🛠️", callback_data='order_diagnostic_menu')],
         [InlineKeyboardButton("Вернуться в Услуги 🔙", callback_data='our_services_menu')],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='HTML')

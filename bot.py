@@ -51,12 +51,15 @@ def main() -> None:
     application.add_handler(CommandHandler("menu", handlers.our_services))
     application.add_handler(CommandHandler("contact", handlers.contact_us))
     application.add_handler(CommandHandler("cabinet", handlers.personal_account))
+    application.add_handler(CommandHandler("expmin", handlers.reset_test_status))
     application.add_handler(CommandHandler("admin_redeem_points", admin_handlers.admin_redeem_points_start))
 
     # Добавление обработчиков CallbackQuery (для inline-кнопок)
     application.add_handler(CallbackQueryHandler(handlers.start, pattern='^start_menu_main$'))  # Для возврата в главное меню
     application.add_handler(CallbackQueryHandler(handlers.ask_question, pattern='^start_test$'))
     application.add_handler(CallbackQueryHandler(handlers.handle_test_answer, pattern='^test_answer_'))
+    application.add_handler(CallbackQueryHandler(handlers.next_question, pattern='^next_question_'))  # Для перехода к следующему вопросу
+    application.add_handler(CallbackQueryHandler(handlers.show_test_results, pattern='^show_test_results$'))  # Для показа результатов теста
     application.add_handler(CallbackQueryHandler(handlers.order_diagnostic_menu, pattern='^order_diagnostic_menu$'))
     application.add_handler(CallbackQueryHandler(handlers.personal_account, pattern='^personal_account_menu$'))
     application.add_handler(CallbackQueryHandler(handlers.use_points_start, pattern='^use_points_start$'))

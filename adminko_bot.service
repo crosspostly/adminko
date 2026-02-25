@@ -1,0 +1,23 @@
+[Unit]
+Description=Telegram Bot AdminKo
+After=network.target
+
+[Service]
+Type=simple
+User=varsmana
+Group=varsmana
+WorkingDirectory=/home/varsmana/adminko
+EnvironmentFile=/home/varsmana/adminko/.env
+ExecStart=/home/varsmana/adminko/start_bot.sh
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=adminko_bot
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
