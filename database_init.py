@@ -20,7 +20,7 @@ def init_db():
     # Таблица пользователей (основные данные и баланс)
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY,
+        user_id TEXT PRIMARY KEY,
         username TEXT,
         first_name TEXT,
         phone_number TEXT,
@@ -32,7 +32,8 @@ def init_db():
         regular_points REAL DEFAULT 0,
         last_regular_points_accrual_date TEXT,
         test_progress INTEGER DEFAULT 0,
-        test_answers TEXT -- Храним как JSON-строку [0,1,0...]
+        test_answers TEXT, -- Храним как JSON-строку [0,1,0...]
+        crm_id TEXT
     )
     ''')
     

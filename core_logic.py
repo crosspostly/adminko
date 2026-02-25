@@ -29,7 +29,8 @@ async def get_or_create_user(user_id, platform, username=None, first_name=None):
             "regular_points": 0,
             "last_regular_points_accrual_date": None,
             "test_progress": 0,
-            "test_answers": [0]*8
+            "test_answers": [0]*8,
+            "crm_id": None
         }
         update_user(p_id, user_data)
     return user_data

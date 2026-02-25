@@ -44,10 +44,10 @@ def update_user(user_id, user_data):
         user_id, username, first_name, phone_number, registration_date,
         bonus_points_current, bonus_expiry_date, bonus_given_flag,
         bonus_reminders_active, regular_points, last_regular_points_accrual_date,
-        test_progress, test_answers
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        test_progress, test_answers, crm_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
-        user_id,
+        str(user_id),
         user_data.get("username"),
         user_data.get("first_name"),
         user_data.get("phone_number"),
@@ -59,7 +59,8 @@ def update_user(user_id, user_data):
         user_data.get("regular_points", 0),
         user_data.get("last_regular_points_accrual_date"),
         user_data.get("test_progress", 0),
-        answers_str
+        answers_str,
+        user_data.get("crm_id")
     ))
     conn.commit()
     conn.close()
