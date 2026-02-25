@@ -22,36 +22,18 @@ from texts import (
     USE_POINTS_CODE_GENERATED, USE_POINTS_NO_POINTS,
 )
 from utils import generate_redeem_code, format_date_for_ru
+import core_logic
 
 logger = logging.getLogger(__name__)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
-    user_data = get_user(user_id)
+    user_data = await core_logic.get_or_create_user(user_id, platform="TG", 
+                                              username=update.effective_user.username,
+                                              first_name=update.effective_user.first_name)
 
-    if not user_data:
-        # Новый пользователь
-        registration_date = datetime.now()
-        user_data = {
-            "user_id": user_id,
-            "username": update.effective_user.username,
-            "first_name": update.effective_user.first_name,
-            "registration_date": registration_date.isoformat(),
-            "phone_number": None,
-            "bonus_points_initial": 1000,
-            "bonus_points_current": 0,  # Начисляем после теста
-            "bonus_expiry_date": None,
-            "bonus_given_flag": False,
-            "bonus_reminders_active": False,
-            "regular_points": 0,
-            "last_regular_points_accrual_date": None,
-            "test_progress": 0,  # 0 - не начат, 1-8 - номер вопроса
-            "test_answers": [0]*8  # 0 - нет, 1 - да
-        }
-        update_user(user_id, user_data)
-        text = START_NEW_USER
-    elif not user_data["bonus_given_flag"]:
-        text = START_RETURNING_USER_NO_BONUS
+    if not user_data["bonus_given_flag"]:
+        text = START_NEW_USER if user_data.get("registration_date") else START_RETURNING_USER_NO_BONUS
     else:
         text = START_RETURNING_USER_WITH_BONUS
 
@@ -76,7 +58,8 @@ async def reset_test_status(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     Позволяет пройти тест заново и снова получить кнопку в меню.
     """
     user_id = update.effective_user.id
-    user_data = get_user(user_id)
+    p_id = f"TG_{user_id}"
+    user_data = get_user(p_id)
     
     if user_data:
         user_data["bonus_given_flag"] = False
@@ -87,7 +70,7 @@ async def reset_test_status(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         user_data["bonus_points_current"] = 0
         user_data["bonus_expiry_date"] = None
         
-        update_user(user_id, user_data)
+        update_user(p_id, user_data)
         await update.message.reply_text("✅ Статус теста сброшен! Теперь вы можете пройти его заново через команду /start.")
     else:
         await update.message.reply_text("Пользователь не найден. Введите /start для регистрации.")
@@ -104,7 +87,8 @@ async def our_services(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         user_id = update.effective_user.id
         message_editor = update.message.reply_text
 
-    user_data = get_user(user_id)
+    p_id = f"TG_{user_id}"
+    user_data = get_user(p_id)
     
     bonus_reminder_text = ""
     if user_data and user_data.get("bonus_given_flag") and user_data.get("bonus_points_current", 0) > 0:
@@ -146,7 +130,8 @@ async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE, answe
         await query.answer()
 
     user_id = query.from_user.id
-    user_data = get_user(user_id)
+    p_id = f"TG_{user_id}"
+    user_data = get_user(p_id)
     if user_data is None:
         await query.edit_message_text("Произошла ошибка. Пожалуйста, начните с команды /start.")
         return
@@ -180,7 +165,8 @@ async def next_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await query.answer()
 
     user_id = query.from_user.id
-    user_data = get_user(user_id)
+    p_id = f"TG_{user_id}"
+    user_data = get_user(p_id)
     if user_data is None:
         await query.edit_message_text("Произошла ошибка. Пожалуйста, начните с команды /start.")
         return
@@ -189,7 +175,7 @@ async def next_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         _, _, question_index_str = query.data.split('_')
         question_index = int(question_index_str)
         user_data["test_progress"] = question_index
-        update_user(user_id, user_data)
+        update_user(p_id, user_data)
         await ask_question(update, context, answered=True)
     except Exception as e:
         logger.error(f"Error in next_question: {e}")
@@ -197,7 +183,8 @@ async def next_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     user_id = query.from_user.id
-    user_data = get_user(user_id)
+    p_id = f"TG_{user_id}"
+    user_data = get_user(p_id)
     if user_data is None:
         await query.answer(show_alert=True, text="Произошла ошибка. Пожалуйста, начните с команды /start.")
         return
@@ -207,25 +194,19 @@ async def handle_test_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
         question_index = int(question_index_str)
         answer = int(answer_str)
         
-        # 'Не знаю' (2) обрабатываем как 'Нет' (0)
-        if answer == 2:
-            answer = 0
-
-        if question_index != user_data["test_progress"]:
+        success, next_progress, hint_text, is_finished = core_logic.process_test_answer(user_data, question_index, answer)
+        
+        if not success:
             # Пользователь ответил на старый вопрос или на вопрос из другого сеанса
             # Показываем актуальный вопрос, чтобы он не застрял
             await query.answer(show_alert=False, text="Показываю актуальный вопрос...")
             await ask_question(update, context, answered=True)
             return
 
-        user_data["test_answers"][question_index] = answer
-        user_data["test_progress"] += 1
-        update_user(user_id, user_data)
+        update_user(p_id, user_data)
 
         # Показываем подсказку после ответа (всплывающее окно)
-        hint_text = TEST_HINTS[question_index]
-
-        if user_data["test_progress"] < len(TEST_QUESTIONS):
+        if not is_finished:
             # Ещё есть вопросы — показываем подсказку и автоматически переходим к следующему
             await query.answer(show_alert=TEST_HINTS_SHOW_ALERT, text=hint_text)
             await ask_question(update, context, answered=True)
@@ -243,13 +224,16 @@ async def show_test_results(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         await query.answer()
 
     user_id = query.from_user.id
-    user_data = get_user(user_id)
+    p_id = f"TG_{user_id}"
+    user_data = get_user(p_id)
     if user_data is None:
         await query.edit_message_text("Произошла ошибка. Пожалуйста, начните с команды /start.")
         return
 
     try:
-        positive_answers = sum(user_data["test_answers"])
+        logger.info(f"Calculating results for {p_id}")
+        positive_answers, bonus_added, user_data = core_logic.calculate_results(user_data)
+        
         result_text = TEST_RESULTS_PROBLEM_COUNT.format(count=positive_answers)
 
         if 0 <= positive_answers <= 1:
@@ -260,24 +244,24 @@ async def show_test_results(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             result_text += TEST_RESULTS_5_8
 
         bonus_info_text = ""
-        if not user_data["bonus_given_flag"]:
-            user_data["bonus_points_current"] = user_data["bonus_points_initial"]
-            user_data["bonus_expiry_date"] = (datetime.now() + timedelta(weeks=2)).isoformat()
-            user_data["bonus_given_flag"] = True
-            user_data["bonus_reminders_active"] = True
-            update_user(user_id, user_data)
-
+        if bonus_added:
+            expiry_date = user_data.get('bonus_expiry_date')
+            expiry_str = format_date_for_ru(expiry_date) if expiry_date else "неизвестно"
             bonus_info_text = TEST_RESULTS_BONUS_NEW.format(
-                expiry_date=format_date_for_ru(user_data['bonus_expiry_date'])
+                expiry_date=expiry_str
             )
-        elif user_data["bonus_given_flag"] and user_data["bonus_points_current"] > 0:
-            # Проверка на наличие даты истечения
+        elif user_data.get("bonus_given_flag") and user_data.get("bonus_points_current", 0) > 0:
             expiry_date_str = user_data.get("bonus_expiry_date")
-            if expiry_date_str and datetime.fromisoformat(expiry_date_str) > datetime.now():
-                bonus_info_text = TEST_RESULTS_BONUS_EXISTING.format(
-                    points=user_data['bonus_points_current'],
-                    expiry_date=format_date_for_ru(expiry_date_str)
-                )
+            if expiry_date_str:
+                try:
+                    expiry_dt = datetime.fromisoformat(expiry_date_str)
+                    if expiry_dt > datetime.now():
+                        bonus_info_text = TEST_RESULTS_BONUS_EXISTING.format(
+                            points=user_data['bonus_points_current'],
+                            expiry_date=format_date_for_ru(expiry_date_str)
+                        )
+                except Exception as date_err:
+                    logger.error(f"Date parsing error for {p_id}: {date_err}")
 
         text = TEST_RESULTS_INTRO + result_text + bonus_info_text
         keyboard = [
@@ -289,12 +273,13 @@ async def show_test_results(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         # Сброс прогресса теста в любом случае после показа результатов
         user_data["test_progress"] = 0
         user_data["test_answers"] = [0]*8
-        update_user(user_id, user_data)
+        update_user(p_id, user_data)
+        logger.info(f"Results shown and progress reset for {p_id}")
     except Exception as e:
-        logger.error(f"Error in show_test_results: {e}")
+        logger.error(f"CRITICAL Error in show_test_results for {p_id}: {e}", exc_info=True)
         # При ошибке все равно пытаемся сбросить прогресс, чтобы пользователь не застрял
         user_data["test_progress"] = 0
-        update_user(user_id, user_data)
+        update_user(p_id, user_data)
         await query.edit_message_text("Произошла ошибка при показе результатов. Пожалуйста, попробуйте снова /start.")
 
 async def order_diagnostic_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -302,7 +287,8 @@ async def order_diagnostic_menu(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
 
     user_id = query.from_user.id
-    user_data = get_user(user_id)
+    p_id = f"TG_{user_id}"
+    user_data = get_user(p_id)
     
     first_name = query.from_user.first_name if query.from_user.first_name else "пользователь"
 
@@ -350,19 +336,11 @@ async def handle_phone_number_input(update: Update, context: ContextTypes.DEFAUL
         return # Игнорируем, если не ждем номер телефона
 
     user_id = update.effective_user.id
-    phone_number = update.message.text
-    first_name = update.effective_user.first_name if update.effective_user.first_name else "Неизвестный"
-    username = update.effective_user.username if update.effective_user.username else ""
-
-    # Простая проверка формата номера телефона
-    if not (phone_number.startswith('+7') and len(phone_number) == 12 and phone_number[1:].isdigit()):
-        await update.message.reply_text(INVALID_PHONE_NUMBER_FORMAT, reply_markup=ReplyKeyboardRemove())
-        return
-
-    user_data = get_user(user_id) # Assume get_user is available in bot.py
+    p_id = f"TG_{user_id}"
+    user_data = get_user(p_id) # Assume get_user is available in bot.py
     if user_data:
         user_data["phone_number"] = phone_number
-        update_user(user_id, user_data) # Assume update_user is available in bot.py
+        update_user(p_id, user_data) # Assume update_user is available in bot.py
         
         bonus_reminder_text = ""
         if user_data and user_data["bonus_given_flag"] and user_data["bonus_points_current"] > 0 and datetime.fromisoformat(user_data["bonus_expiry_date"]) > datetime.now():
@@ -393,14 +371,15 @@ async def handle_contact_share(update: Update, context: ContextTypes.DEFAULT_TYP
         return # Игнорируем, если не ждем номер телефона
 
     user_id = update.effective_user.id
+    p_id = f"TG_{user_id}"
     phone_number = update.message.contact.phone_number
     first_name = update.effective_user.first_name if update.effective_user.first_name else "Неизвестный"
     username = update.effective_user.username if update.effective_user.username else ""
 
-    user_data = get_user(user_id) # Assume get_user is available in bot.py
+    user_data = get_user(p_id) # Assume get_user is available in bot.py
     if user_data:
         user_data["phone_number"] = phone_number
-        update_user(user_id, user_data) # Assume update_user is available in bot.py
+        update_user(p_id, user_data) # Assume update_user is available in bot.py
         
         bonus_reminder_text = ""
         if user_data and user_data["bonus_given_flag"] and user_data["bonus_points_current"] > 0 and datetime.fromisoformat(user_data["bonus_expiry_date"]) > datetime.now():
@@ -438,7 +417,8 @@ async def personal_account(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         first_name = update.effective_user.first_name
         message_editor = update.message.reply_text
 
-    user_data = get_user(user_id)
+    p_id = f"TG_{user_id}"
+    user_data = get_user(p_id)
 
     if not user_data:
         # Если это CallbackQuery, отвечаем через edit_message_text
@@ -484,7 +464,8 @@ async def use_points_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await query.answer()
 
     user_id = query.from_user.id
-    user_data = get_user(user_id)
+    p_id = f"TG_{user_id}"
+    user_data = get_user(p_id)
 
     if not user_data or (user_data["bonus_points_current"] == 0 and user_data["regular_points"] == 0):
         await query.edit_message_text(USE_POINTS_NO_POINTS, parse_mode='HTML')

@@ -102,7 +102,14 @@ async def handle_manager_input(update: Update, context: ContextTypes.DEFAULT_TYP
             return
 
         client_user_id = code_info["user_id"]
-        client_user_data = get_user(client_user_id)
+        # В этой версии кодов user_id может быть как числом, так и строкой с префиксом.
+        # Для Telegram-менеджера мы предполагаем, что он работает с Telegram-клиентами, 
+        # но на всякий случай проверяем формат.
+        p_id = str(client_user_id)
+        if not p_id.startswith("TG_") and not p_id.startswith("MAX_"):
+            p_id = f"TG_{client_user_id}"
+            
+        client_user_data = get_user(p_id)
         if not client_user_data:
             await update.message.reply_text(ADMIN_CLIENT_NOT_FOUND)
             context.user_data['state'] = None
@@ -218,7 +225,8 @@ async def confirm_redeem(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     code_info["status"] = "used"
     save_codes_data(codes_data)
 
-    client_user_data = get_user(user_id)
+    p_id = f"TG_{user_id}"
+    client_user_data = get_user(p_id)
     points_to_redeem = code_info["amount_to_redeem"]
     final_price = code_info["final_price"]
     order_sum = code_info["order_sum"]
@@ -235,7 +243,7 @@ async def confirm_redeem(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Отключаем напоминания о бонусе, если он использован
     if points_to_redeem > 0:
         client_user_data["bonus_reminders_active"] = False
-    update_user(user_id, client_user_data)
+    update_user(p_id, client_user_data)
 
     # Уведомление клиенту об успешном списании
     text_client = CLIENT_REDEEM_SUCCESS.format(

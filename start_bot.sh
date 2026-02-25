@@ -21,9 +21,9 @@ echo "[+] Watcher started (PID: $WATCHER_PID)"
 # SYNC_PID=$!
 # echo "[+] Miro AutoSync started (PID: $SYNC_PID)"
 
-# 3. Основной бот
-echo "[+] Starting Telegram Bot..."
-./venv/bin/python bot.py
+# 3. Основной бот (Омниканальный: TG + MAX)
+echo "[+] Starting Unified Telegram & MAX Bot..."
+./venv/bin/python bot_unified.py
 
 # Cleanup
 echo "--- Shutting down ---"
