@@ -32,21 +32,22 @@ async def post_init_tg(application: Application):
         ("contact", "Контакты и о нас"),
         ("cabinet", "Личный кабинет")
     ])
-    
-    # Установка описания бота (то, что видно ДО нажатия Старт)
-    # Устанавливаем и как дефолтное, и явно для 'ru', чтобы пробить кеш
-    await application.bot.set_my_description(description=handlers.BOT_DESCRIPTION)
-    await application.bot.set_my_description(description=handlers.BOT_DESCRIPTION, language_code='ru')
-    
-    # Установка краткого описания (видно в профиле)
-    await application.bot.set_my_short_description(short_description=handlers.BOT_SHORT_DESCRIPTION)
-    await application.bot.set_my_short_description(short_description=handlers.BOT_SHORT_DESCRIPTION, language_code='ru')
-    
-    # Установка "About" (текст в профиле бота)
-    await application.bot.set_my_about_text(about_text=handlers.BOT_SHORT_DESCRIPTION)
-    await application.bot.set_my_about_text(about_text=handlers.BOT_SHORT_DESCRIPTION, language_code='ru')
-    
-    logger.info("Telegram Bot info and commands updated.")
+    logger.info("Telegram commands updated.")
+
+async def update_bot_info(bot):
+    """Updates bot description and short description without blocking."""
+    try:
+        # Это основной текст "Что может этот бот?"
+        await bot.set_my_description(description=handlers.BOT_DESCRIPTION)
+        await bot.set_my_description(description=handlers.BOT_DESCRIPTION, language_code='ru')
+        
+        # Это краткое описание
+        await bot.set_my_short_description(short_description=handlers.BOT_SHORT_DESCRIPTION)
+        await bot.set_my_short_description(short_description=handlers.BOT_SHORT_DESCRIPTION, language_code='ru')
+        
+        logger.info("✅ Telegram Bot descriptions updated successfully.")
+    except Exception as e:
+        logger.error(f"❌ Failed to update bot descriptions: {e}")
 
 async def run_telegram():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -55,7 +56,8 @@ async def run_telegram():
         return
     
     application = ApplicationBuilder().token(token).post_init(post_init_tg).build()
-
+    
+    # ... (регистрация хендлеров остается прежней)
     # Команды
     application.add_handler(CommandHandler("start", handlers.start))
     application.add_handler(CommandHandler("menu", handlers.our_services))
@@ -92,6 +94,10 @@ async def run_telegram():
     logger.info("[+] Telegram Bot starting...")
     await application.initialize()
     await application.start()
+    
+    # Запускаем обновление описаний в фоне, чтобы не блокировать polling
+    asyncio.create_task(update_bot_info(application.bot))
+    
     await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
     
     # Чтобы корутина не завершалась
