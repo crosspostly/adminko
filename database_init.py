@@ -33,7 +33,10 @@ def init_db():
         last_regular_points_accrual_date TEXT,
         test_progress INTEGER DEFAULT 0,
         test_answers TEXT, -- Храним как JSON-строку [0,1,0...]
-        crm_id TEXT
+        crm_id TEXT,
+        utm_source TEXT DEFAULT 'direct',
+        yandex_review_status TEXT DEFAULT 'none',
+        twogis_review_status TEXT DEFAULT 'none'
     )
     ''')
     

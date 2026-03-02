@@ -1,5 +1,5 @@
 [Unit]
-Description=Telegram Bot AdminKo
+Description=Telegram Bot AdminKo (Unified)
 After=network.target
 
 [Service]
@@ -8,16 +8,13 @@ User=varsmana
 Group=varsmana
 WorkingDirectory=/home/varsmana/adminko
 EnvironmentFile=/home/varsmana/adminko/.env
-ExecStart=/home/varsmana/adminko/start_bot.sh
+# Запускаем через bash-скрипт, чтобы подхватить все логи и вочеры
+ExecStart=/bin/bash /home/varsmana/adminko/start_bot.sh
 Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
+RestartSec=5
+StandardOutput=append:/home/varsmana/adminko/bot_output.log
+StandardError=append:/home/varsmana/adminko/bot_error.log
 SyslogIdentifier=adminko_bot
-
-# Security hardening
-NoNewPrivileges=true
-PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target

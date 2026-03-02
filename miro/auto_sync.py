@@ -9,16 +9,38 @@ import subprocess
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from config import MIRO_ACCESS_TOKEN, MIRO_BOARD_ID
 from miro.manager import MiroSync
+from utils import clean_miro_text
 
 MAPPING_FILE = os.path.join(os.path.dirname(__file__), '../memory/miro_mapping.json')
 TEXTS_FILE = os.path.join(os.path.dirname(__file__), '../texts.py')
 
 def clean_miro_text(text):
-    """Очищает текст от оберток Miro (<p>), но оставляет полезные теги."""
-    if not text: return ""
-    # Miro часто оборачивает все в <p>...</p>
-    if text.startswith("<p>") and text.endswith("</p>"):
-        text = text[3:-4]
+    \"\"\"
+    Очищает текст Miro для Telegram:
+    1. Конвертирует <p> и <br> в переносы строк.
+    2. Оставляет только разрешенные теги (b, i, u, s, a, code).
+    3. Декодирует HTML-сущности.
+    \"\"\"
+    if not text:
+        return \"\"
+    
+    # Заменяем структурные теги на переносы строк
+    text = text.replace('<p>', '').replace('</p>', '\\n')
+    text = re.sub(r'<br\\s*/?>', '\\n', text)
+    text = text.replace('&nbsp;', ' ')
+
+    # Список разрешенных тегов Telegram
+    # Удаляем все теги, кроме b, i, u, s, a, code, strong, em, ins, strike, del
+    allowed = r'(/?(b|i|u|s|a|code|strong|em|ins|strike|del)(?=>|\\s))'
+    text = re.sub(r'<(?!' + allowed + r')[^>]+>', '', text)
+
+    # Декодируем сущности (смайлики, спецсимволы)
+    text = html.unescape(text)
+    
+    # Убираем лишние пробелы и множественные переносы в конце
+    text = text.strip()
+    text = re.sub(r'\\n{3,}', '\\n\\n', text)
+    
     return text
 
 def update_python_file(file_path, variable_name, new_value):

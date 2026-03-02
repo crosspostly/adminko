@@ -13,7 +13,7 @@ from telegram.ext import (
 from maxapi import Bot, Dispatcher
 import handlers
 import max_handlers
-import admin_handlers
+import review_handlers
 import config
 
 # Устанавливаем базовую конфигурацию логирования
@@ -55,16 +55,16 @@ async def run_telegram():
         logger.error("TELEGRAM_BOT_TOKEN не установлен в переменных окружения.")
         return
     
+    # Инициализация с JobQueue
     application = ApplicationBuilder().token(token).post_init(post_init_tg).build()
     
-    # ... (регистрация хендлеров остается прежней)
     # Команды
     application.add_handler(CommandHandler("start", handlers.start))
     application.add_handler(CommandHandler("menu", handlers.our_services))
     application.add_handler(CommandHandler("contact", handlers.contact_us))
     application.add_handler(CommandHandler("cabinet", handlers.personal_account))
     application.add_handler(CommandHandler("expmin", handlers.reset_test_status))
-    application.add_handler(CommandHandler("admin_redeem_points", admin_handlers.admin_redeem_points_start))
+    application.add_handler(CommandHandler("admin_redeem_points", handlers.admin_redeem_points_start))
 
     # CallbackQuery
     application.add_handler(CallbackQueryHandler(handlers.start, pattern='^start_menu_main$'))
@@ -75,27 +75,35 @@ async def run_telegram():
     application.add_handler(CallbackQueryHandler(handlers.order_diagnostic_menu, pattern='^order_diagnostic_menu$'))
     application.add_handler(CallbackQueryHandler(handlers.personal_account, pattern='^personal_account_menu$'))
     application.add_handler(CallbackQueryHandler(handlers.use_points_start, pattern='^use_points_start$'))
-    application.add_handler(CallbackQueryHandler(admin_handlers.send_client_confirm, pattern='^send_client_confirm$'))
-    application.add_handler(CallbackQueryHandler(admin_handlers.confirm_redeem, pattern='^confirm_redeem_'))
-    application.add_handler(CallbackQueryHandler(admin_handlers.cancel_redeem_admin, pattern='^cancel_redeem_admin$'))
-    application.add_handler(CallbackQueryHandler(admin_handlers.cancel_redeem_client, pattern='^cancel_redeem_client_'))
+    application.add_handler(CallbackQueryHandler(handlers.send_client_confirm, pattern='^send_client_confirm$'))
+    application.add_handler(CallbackQueryHandler(handlers.confirm_redeem, pattern='^confirm_redeem_'))
+    application.add_handler(CallbackQueryHandler(handlers.cancel_redeem_admin, pattern='^cancel_redeem_admin$'))
+    application.add_handler(CallbackQueryHandler(handlers.cancel_redeem_client, pattern='^cancel_redeem_client_'))
     application.add_handler(CallbackQueryHandler(handlers.our_services, pattern='^our_services_menu$'))
     application.add_handler(CallbackQueryHandler(handlers.contact_us, pattern='^contact_us_menu$'))
     application.add_handler(CallbackQueryHandler(handlers.request_phone_number_menu, pattern='^request_callback$'))
     application.add_handler(CallbackQueryHandler(handlers.service_repair_pc_notebooks_menu, pattern='^service_repair_pc_notebooks$'))
     application.add_handler(CallbackQueryHandler(handlers.service_it_support_orgs_menu, pattern='^service_it_support_orgs$'))
     application.add_handler(CallbackQueryHandler(handlers.service_video_surveillance_menu, pattern='^service_video_surveillance$'))
+    
+    # Новый хендлер для подтверждения отзывов
+    application.add_handler(CallbackQueryHandler(handlers.handle_review_verification, pattern="^verify_review_"))
+    # Новый хендлер для меню бонусов за отзывы
+    application.add_handler(CallbackQueryHandler(review_handlers.get_review_bonuses_menu, pattern="^get_review_bonuses$"))
 
     # Сообщения
-    application.add_handler(MessageHandler(filters.TEXT & filters.REPLY & ~filters.COMMAND, admin_handlers.handle_manager_input))
+    application.add_handler(MessageHandler(filters.PHOTO & ~filters.COMMAND, review_handlers.handle_review_proof))
+    application.add_handler(MessageHandler(filters.TEXT & filters.REPLY & ~filters.COMMAND, handlers.handle_manager_input))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, review_handlers.handle_review_proof)) # Сначала проверяем на отзыв
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_phone_number_input))
     application.add_handler(MessageHandler(filters.CONTACT & ~filters.COMMAND, handlers.handle_contact_share))
 
     logger.info("[+] Telegram Bot starting...")
+    
     await application.initialize()
     await application.start()
     
-    # Запускаем обновление описаний в фоне, чтобы не блокировать polling
+    # Запускаем обновление описаний в фоне
     asyncio.create_task(update_bot_info(application.bot))
     
     await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)

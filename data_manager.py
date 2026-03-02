@@ -44,8 +44,9 @@ def update_user(user_id, user_data):
         user_id, username, first_name, phone_number, registration_date,
         bonus_points_current, bonus_expiry_date, bonus_given_flag,
         bonus_reminders_active, regular_points, last_regular_points_accrual_date,
-        test_progress, test_answers, crm_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        test_progress, test_answers, crm_id,
+        utm_source, yandex_review_status, twogis_review_status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         str(user_id),
         user_data.get("username"),
@@ -60,7 +61,10 @@ def update_user(user_id, user_data):
         user_data.get("last_regular_points_accrual_date"),
         user_data.get("test_progress", 0),
         answers_str,
-        user_data.get("crm_id")
+        user_data.get("crm_id"),
+        user_data.get("utm_source", "direct"),
+        user_data.get("yandex_review_status", "none"),
+        user_data.get("twogis_review_status", "none")
     ))
     conn.commit()
     conn.close()
